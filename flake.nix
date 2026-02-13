@@ -1,4 +1,5 @@
 {
+  # test trigger - remove before merge
   description = "OpenCode development flake";
 
   inputs = {
