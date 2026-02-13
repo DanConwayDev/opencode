@@ -18,9 +18,44 @@ on:
       - ".github/workflows/nix-hashes.yml"
 
 jobs:
-  # Native runners required: bun install cross-compilation flags (--os/--cpu)
-  # do not produce byte-identical node_modules as native installs.
+  update-flake-lock:
+    if: github.event_name != 'pull_request'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Setup Nix
+        uses: nixbuild/nix-quick-install-action@v34
+
+      - name: Setup git committer
+        uses: ./.github/actions/setup-git-committer
+        with:
+          opencode-app-id: ${{ vars.OPENCODE_APP_ID }}
+          opencode-app-secret: ${{ secrets.OPENCODE_APP_SECRET }}
+
+      - name: Update flake.lock
+        run: |
+          set -euo pipefail
+          git pull --rebase --autostash origin "$GITHUB_REF_NAME"
+          nix flake update
+          if [ -z "$(git status --short -- flake.lock)" ]; then
+            echo "No flake.lock changes"
+            exit 0
+          fi
+          git add flake.lock
+          git commit -m "chore: update flake.lock"
+          git pull --rebase --autostash origin "$GITHUB_REF_NAME"
+          git push origin HEAD:"$GITHUB_REF_NAME"
+
   compute-hash:
+    needs: update-flake-lock
+    if: always() && (needs.update-flake-lock.result == 'success' || needs.update-flake-lock.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
@@ -38,6 +73,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Pull latest
+        run: git pull --rebase --autostash origin "$GITHUB_REF_NAME"
 
       - name: Setup Nix
         uses: nixbuild/nix-quick-install-action@v34
